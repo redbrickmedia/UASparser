@@ -9,6 +9,7 @@
  * @copyright  Copyright (c) 2008 Jaroslav Mallat
  * @copyright  Copyright (c) 2010 Alex Stanev (http://stanev.org)
  * @copyright  Copyright (c) 2012 Martin van Wingerden (http://www.copernica.com)
+ * @copyright  Copyright (c) 2015 Red Brick Media (http://www.redbrickmedia.com)
  * @author     Marcus Bointon (https://github.com/Synchro)
  * @version    0.53
  * @license    http://www.gnu.org/licenses/lgpl.html GNU Lesser General Public License
@@ -57,25 +58,25 @@ class Parser
      * URL to fetch the full data file from.
      * @type string
      */
-    protected static $ini_url = 'http://user-agent-string.info/rpc/get_data.php?key=free&format=ini';
+    protected $ini_url = 'http://data.udger.com/[ACCESS_KEY]/udgerdata_old.ini';
 
     /**
      * URL to fetch the data file version from.
      * @type string
      */
-    protected static $ver_url = 'http://user-agent-string.info/rpc/get_data.php?key=free&format=ini&ver=y';
+    protected $ver_url = 'http://data.udger.com/[ACCESS_KEY]/version';
 
     /**
      * URL to fetch the data file hash from.
      * @type string
      */
-    protected static $md5_url = 'http://user-agent-string.info/rpc/get_data.php?format=ini&md5=y';
+    protected $md5_url = 'http://data.udger.com/[ACCESS_KEY]/udgerdata_old_ini.md5';
 
     /**
      * URL for info about the UAS project.
      * @type string
      */
-    protected static $info_url = 'http://user-agent-string.info';
+    protected static $info_url = 'http://udger.com';
 
     /**
      * Path to store data file downloads to.
@@ -91,21 +92,33 @@ class Parser
 
     /**
      * Constructor.
+     * @param string $access_key Udger access key
      * @param string $cacheDirectory Cache directory for data downloads
      * @param integer $updateInterval Allowed age of the cache file.
      * @param bool $debug Whether to emit debug info.
      * @param bool $doDownloads Whether to allow data downloads.
      */
-    public function __construct($cacheDirectory = null, $updateInterval = null, $debug = false, $doDownloads = true)
+    public function __construct($access_key, $cacheDirectory = null, $updateInterval = null, $debug = false, $doDownloads = true)
     {
+        $this->debug = (boolean)$debug;
+        
         if ($cacheDirectory) {
             $this->SetCacheDir($cacheDirectory);
         }
+        
         if ($updateInterval) {
             $this->updateInterval = $updateInterval;
         }
-        $this->debug = (boolean)$debug;
+        
         $this->doDownloads = (boolean)$doDownloads;
+        
+        if ( empty( $access_key ) )
+        {
+            throw new \InvalidArgumentException( 'Udger access key is required' );
+        }
+        $this->ini_url = str_replace( '[ACCESS_KEY]', $access_key, $this->ini_url );
+        $this->ver_url = str_replace( '[ACCESS_KEY]', $access_key, $this->ver_url );
+        $this->md5_url = str_replace( '[ACCESS_KEY]', $access_key, $this->md5_url );
     }
 
     /**
@@ -376,7 +389,7 @@ class Parser
 
         // Check the version on the server
         // If we are current, don't download again
-        $ver = $this->getContents(self::$ver_url, $this->timeout);
+        $ver = $this->getContents($this->ver_url, $this->timeout);
         //Should be a date and version string like '20130529-01'
         if (preg_match('/^[0-9]{8}-[0-9]{2}$/', $ver)) {
             if (array_key_exists('localversion', $cacheIni)) {
@@ -398,10 +411,10 @@ class Parser
         }
 
         // Download the ini file
-        $ini = $this->getContents(self::$ini_url, $this->timeout);
+        $ini = $this->getContents($this->ini_url, $this->timeout);
         if (!empty($ini)) {
             // Download the hash file
-            $md5hash = $this->getContents(self::$md5_url, $this->timeout);
+            $md5hash = $this->getContents($this->md5_url, $this->timeout);
             if (!empty($md5hash)) {
                 // Validate the hash, if okay store the new ini file
                 if (md5($ini) == $md5hash) {
@@ -554,14 +567,25 @@ class Parser
     public function setCacheDir($cacheDir)
     {
         $this->debug('Setting cache dir to ' . $cacheDir);
+        
         // The directory does not exist at this moment, try to make it
         if (!file_exists($cacheDir)) {
+            $old = umask( 0 );
             @mkdir($cacheDir, 0777, true);
+            umask( $old );
+            if ( $old != umask() )
+            {
+                $msg = 'An error occurred while changing back the umask';
+                $this->debug( $msg );
+                throw new \RuntimeException( $msg );
+            }
         }
 
         // perform some extra checks
         if (!is_writable($cacheDir) || !is_dir($cacheDir)) {
-            $this->debug('Cache dir(' . $cacheDir . ') is not a directory or not writable');
+            $msg = 'Cache dir(' . $cacheDir . ') is not a directory or not writable';
+            $this->debug( $msg );
+            throw new \RuntimeException( $msg );
             return false;
         }
 
@@ -632,7 +656,7 @@ class Parser
      */
     public function getIniUrl()
     {
-        return self::$ini_url;
+        return $this->ini_url;
     }
 
     /**
@@ -642,7 +666,7 @@ class Parser
     public function setIniUrl($url)
     {
         if (filter_var($url, FILTER_VALIDATE_URL)) {
-            self::$ini_url = $url;
+            $this->ini_url = $url;
         }
     }
 
@@ -652,7 +676,7 @@ class Parser
      */
     public function getVerUrl()
     {
-        return self::$ver_url;
+        return $this->ver_url;
     }
 
     /**
@@ -662,7 +686,7 @@ class Parser
     public function setVerUrl($url)
     {
         if (filter_var($url, FILTER_VALIDATE_URL)) {
-            self::$ver_url = $url;
+            $this->ver_url = $url;
         }
     }
 
@@ -672,7 +696,7 @@ class Parser
      */
     public function getMd5Url()
     {
-        return self::$md5_url;
+        return $this->md5_url;
     }
 
     /**
@@ -682,7 +706,7 @@ class Parser
     public function setMd5Url($url)
     {
         if (filter_var($url, FILTER_VALIDATE_URL)) {
-            self::$md5_url = $url;
+            $this->md5_url = $url;
         }
     }
 }
